@@ -8,6 +8,13 @@ from werkzeug.utils import secure_filename
 # Initialize Flask app
 app = Flask(__name__)
 
+# Define the upload directory using an absolute path
+UPLOAD_DIRECTORY = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+
+# Ensure the upload directory exists
+if not os.path.exists(UPLOAD_DIRECTORY):
+    os.makedirs(UPLOAD_DIRECTORY)
+
 # Load the trained model
 model = tf.keras.models.load_model('forgery_detect.keras')
 
@@ -36,31 +43,35 @@ def detect_forgery():
     if image.filename == '':
         return jsonify({'error': 'No image selected'}), 400
 
-    # Save the uploaded image
-    filename = secure_filename(image.filename)
-    filepath = os.path.join('uploads', filename)
-    image.save(filepath)
+    try:
+        # Save the uploaded image
+        filename = secure_filename(image.filename)
+        filepath = os.path.join(UPLOAD_DIRECTORY, filename)
+        image.save(filepath)
 
-    # Make a prediction
-    prediction = predict_image(filepath)
+        # Make a prediction
+        prediction = predict_image(filepath)
 
-    # Remove the uploaded image after prediction
-    os.remove(filepath)
+        # Remove the uploaded image after prediction
+        os.remove(filepath)
 
-    # Return the result as JSON
-    if prediction < 0.5:
-        return jsonify({
-            'forgery_detected': True,
-            'confidence': float(1 - prediction)
-        })
-    else:
-        return jsonify({
-            'forgery_detected': False,
-            'confidence': float(prediction)
-        })
+        # Return the result as JSON
+        if prediction < 0.5:
+            return jsonify({
+                'forgery_detected': True,
+                'confidence': float(1 - prediction)
+            })
+        else:
+            return jsonify({
+                'forgery_detected': False,
+                'confidence': float(prediction)
+            })
+
+    except Exception as e:
+        # Log the error (you might want to use a proper logging system in production)
+        print(f"Error processing image: {str(e)}")
+        return jsonify({'error': 'An error occurred while processing the image'}), 500
 
 # Run the Flask app
 if __name__ == '__main__':
-    if not os.path.exists('uploads'):
-        os.makedirs('uploads')
-    app.run(debug=True)
+    app.run(debug=False, host='0.0.0.0', port=8080)
