@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS  # Import CORS
 import tensorflow as tf
 import numpy as np
 import cv2
@@ -7,6 +8,9 @@ from werkzeug.utils import secure_filename
 
 # Initialize Flask app
 app = Flask(__name__)
+
+# Enable CORS for all routes (or restrict to specific origins)
+CORS(app)
 
 # Define the upload directory using an absolute path
 UPLOAD_DIRECTORY = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
