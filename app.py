@@ -20,11 +20,12 @@ if not os.path.exists(UPLOAD_DIRECTORY):
     os.makedirs(UPLOAD_DIRECTORY)
 
 # Load the trained model
-model = tf.keras.models.load_model('forgery_detect.keras')
+model = tf.keras.models.load_model('forgeryv3.keras')
 
 # Function to preprocess the image (resize and normalize)
 def preprocess_image(image_path):
     img = cv2.imread(image_path)  # Load the image
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = cv2.resize(img, (256, 256))  # Resize to match the input shape (256x256)
     img = img / 255.0  # Normalize pixel values (0-1)
     img = np.expand_dims(img, axis=0)  # Add batch dimension
@@ -78,4 +79,4 @@ def detect_forgery():
 
 # Run the Flask app
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=8080)
+    app.run(debug=True, host='0.0.0.0', port=5000)
