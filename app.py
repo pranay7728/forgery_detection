@@ -20,7 +20,7 @@ if not os.path.exists(UPLOAD_DIRECTORY):
     os.makedirs(UPLOAD_DIRECTORY)
 
 # Load the trained model
-model = tf.keras.models.load_model('forgeryv3.keras')
+model = tf.keras.models.load_model('forgeryvTestRand.keras')
 
 # Function to preprocess the image (resize and normalize)
 def preprocess_image(image_path):
