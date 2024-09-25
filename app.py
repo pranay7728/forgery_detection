@@ -95,7 +95,7 @@ def perform_inference(ela_gray):
         print(f"Error in perform_inference: {e}")
         return None
 
-@app.route('/process', methods=['POST'])
+@app.route('/detect-forgery', methods=['POST'])
 def process_image():
     """
     Endpoint to process an uploaded image, perform ELA, run inference, and return the result.
