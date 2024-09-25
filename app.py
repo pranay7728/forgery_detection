@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS  # Import CORS
 from PIL import Image, ImageChops, ImageEnhance
 import numpy as np
 import os
@@ -7,6 +8,10 @@ import cv2
 import tensorflow as tf
 
 app = Flask(__name__)
+
+# Initialize CORS
+# Allow all origins. For more restrictive access, specify the origins like CORS(app, resources={r"/process": {"origins": "http://yourdomain.com"}})
+CORS(app)
 
 # Load the TensorFlow model at startup
 MODEL_PATH = 'forgeryvTestRand.keras'  # Ensure this path is correct
@@ -119,8 +124,11 @@ def process_image():
 
     if file:
         try:
+            # Secure the filename
+            filename = secure_filename(file.filename)
+
             # Save the uploaded image to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp_file:
                 file_path = temp_file.name
                 file.save(file_path)
 
