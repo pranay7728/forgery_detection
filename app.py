@@ -5,6 +5,8 @@ import numpy as np
 import cv2
 import os
 from werkzeug.utils import secure_filename
+from PIL import Image, ImageChops, ImageEnhance  # Imports for ELA
+import io
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -22,18 +24,56 @@ if not os.path.exists(UPLOAD_DIRECTORY):
 # Load the trained model
 model = tf.keras.models.load_model('forgeryvTestRand.keras')
 
-# Function to preprocess the image (resize and normalize)
+# Function to perform ELA on an image
+def perform_ela(image_path, quality=90):
+    # Open the original image
+    original_image = Image.open(image_path)
+
+    # Save the image at a lower quality (JPEG format)
+    temp_image_path = 'temp_image.jpg'
+    original_image.save(temp_image_path, 'JPEG', quality=quality)
+
+    # Open the compressed image
+    compressed_image = Image.open(temp_image_path)
+
+    # Perform error level analysis by finding the difference
+    ela_image = ImageChops.difference(original_image, compressed_image)
+
+    # Enhance the differences (make them more visible)
+    extrema = ela_image.getextrema()
+    max_diff = max([extreme[1] for extreme in extrema])
+
+    # Prevent division by zero if max_diff is 0
+    scale = 255.0 / max_diff if max_diff != 0 else 1.0
+    ela_image = ImageEnhance.Brightness(ela_image).enhance(scale)
+
+    # Convert the ELA image to RGB for model input (if necessary)
+    ela_image = ela_image.convert('RGB')
+
+    return ela_image
+
+# Function to preprocess the image (apply ELA, resize, normalize)
 def preprocess_image(image_path):
-    img = cv2.imread(image_path)  # Load the image
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = cv2.resize(img, (256, 256))  # Resize to match the input shape (256x256)
-    img = img / 255.0  # Normalize pixel values (0-1)
-    img = np.expand_dims(img, axis=0)  # Add batch dimension
-    return img
+    # Perform ELA on the image
+    ela_image = perform_ela(image_path)
+
+    # Convert the ELA image to a numpy array
+    ela_array = np.array(ela_image)
+
+    # Resize the ELA image to match the input shape (256x256)
+    ela_resized = cv2.resize(ela_array, (256, 256))
+
+    # Normalize pixel values (0-1)
+    ela_resized = ela_resized / 255.0
+
+    # Add batch dimension
+    ela_resized = np.expand_dims(ela_resized, axis=0)
+
+    return ela_resized
 
 # Function to make prediction
 def predict_image(image_path):
-    img = preprocess_image(image_path)  # Preprocess the image
+    img = preprocess_image(image_path)  # Preprocess the image (with ELA)
     prediction = model.predict(img)  # Get prediction
     return prediction[0][0]  # Return the probability (since sigmoid is used)
 
