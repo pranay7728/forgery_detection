@@ -1,146 +1,175 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
-import tensorflow as tf
-import numpy as np
-import cv2
-import os
-from werkzeug.utils import secure_filename
 from PIL import Image, ImageChops, ImageEnhance
-import io
+import numpy as np
+import os
+import tempfile
+import cv2
+import tensorflow as tf
 
-# Initialize Flask app
 app = Flask(__name__)
 
-# Enable CORS for all routes (or restrict to specific origins)
-CORS(app)
+# Load the TensorFlow model at startup
+MODEL_PATH = 'forgeryvTestRand.keras'  # Ensure this path is correct
+try:
+    model = tf.keras.models.load_model(MODEL_PATH)
+    print("Model loaded successfully.")
+except Exception as e:
+    print(f"Error loading model: {e}")
+    model = None
 
-# Define the upload directory using an absolute path
-UPLOAD_DIRECTORY = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
-
-# Ensure the upload directory exists
-if not os.path.exists(UPLOAD_DIRECTORY):
-    os.makedirs(UPLOAD_DIRECTORY)
-
-# Load the trained model
-model = tf.keras.models.load_model('forgeryvTestRand.keras')
-
-# Updated ELA function to match the first implementation
 def perform_ela(image_path, quality=90):
-    # Open the original image
-    original_image = Image.open(image_path)
+    """
+    Performs Error Level Analysis (ELA) on the given image.
 
-    # Save the image at a lower quality (JPEG format)
-    temp_image_path = 'temp_image.jpg'
-    original_image.save(temp_image_path, 'JPEG', quality=quality)
+    Args:
+        image_path (str): Path to the original image.
+        quality (int): JPEG quality for compression.
 
-    # Open the compressed image
-    compressed_image = Image.open(temp_image_path)
-
-    # Resize and mode conversion checks
-    if original_image.size != compressed_image.size:
-        compressed_image = compressed_image.resize(original_image.size)
-    if original_image.mode != compressed_image.mode:
-        compressed_image = compressed_image.convert(original_image.mode)
-
-    # Perform error level analysis by finding the difference
-    ela_image = ImageChops.difference(original_image, compressed_image)
-
-    # Convert to RGB if the image is grayscale (single-channel)
-    if ela_image.mode != 'RGB':
-        ela_image = ela_image.convert('RGB')
-
-    # Enhance the differences (make them more visible)
-    extrema = ela_image.getextrema()
-
-    # Extract extrema from each channel if necessary
-    if isinstance(extrema[0], tuple):
-        max_diff = max([max(channel_extrema) for channel_extrema in extrema])
-    else:
-        max_diff = max(extrema)
-
-    # Prevent division by zero if max_diff is 0
-    scale = 255.0 / max_diff if max_diff != 0 else 1.0
-    ela_image = ImageEnhance.Brightness(ela_image).enhance(scale)
-
-    # Convert the ELA image to numpy array for processing
-    ela_array = np.array(ela_image)
-
-    # Convert the ELA image to grayscale to analyze pixel intensities
-    ela_gray = np.mean(ela_array, axis=2)  # Average the RGB channels to get grayscale intensity
-
-    # Convert back to PIL Image
-    ela_gray_image = Image.fromarray(ela_gray.astype(np.uint8))
-
-    # Clean up temporary file
-    os.remove(temp_image_path)
-
-    return ela_gray_image
-
-# Function to preprocess the image (apply ELA, resize, normalize)
-def preprocess_image(image_path):
-    # Perform ELA on the image
-    ela_image = perform_ela(image_path)
-
-    # Convert the ELA image to a numpy array
-    ela_array = np.array(ela_image)
-
-    # Resize the ELA image to match the input shape (256x256)
-    ela_resized = cv2.resize(ela_array, (256, 256))
-
-    # Normalize pixel values (0-1)
-    ela_resized = ela_resized / 255.0
-
-    # Add batch dimension and channel dimension (for grayscale)
-    ela_resized = np.expand_dims(ela_resized, axis=(0, -1))
-
-    return ela_resized
-
-# Function to make prediction
-def predict_image(image_path):
-    img = preprocess_image(image_path)  # Preprocess the image (with ELA)
-    prediction = model.predict(img)  # Get prediction
-    return prediction[0][0]  # Return the probability (since sigmoid is used)
-
-# Flask route for forgery detection
-@app.route('/detect-forgery', methods=['POST'])
-def detect_forgery():
-    if 'image' not in request.files:
-        return jsonify({'error': 'No image uploaded'}), 400
-
-    # Get the file from the request
-    image = request.files['image']
-    if image.filename == '':
-        return jsonify({'error': 'No image selected'}), 400
-
+    Returns:
+        np.ndarray: Grayscale ELA image as a NumPy array.
+    """
     try:
-        # Save the uploaded image
-        filename = secure_filename(image.filename)
-        filepath = os.path.join(UPLOAD_DIRECTORY, filename)
-        image.save(filepath)
+        # Open the original image
+        original_image = Image.open(image_path).convert('RGB')
 
-        # Make a prediction
-        prediction = predict_image(filepath)
+        # Save the image at a lower quality (JPEG format)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+            temp_image_path = temp_file.name
+        original_image.save(temp_image_path, 'JPEG', quality=quality)
 
-        # Remove the uploaded image after prediction
-        os.remove(filepath)
+        # Open the compressed image
+        compressed_image = Image.open(temp_image_path).convert('RGB')
 
-        # Return the result as JSON
-        if prediction < 0.5:
-            return jsonify({
-                'forgery_detected': True,
-                'confidence': float(1 - prediction)
-            })
-        else:
-            return jsonify({
-                'forgery_detected': False,
-                'confidence': float(prediction)
-            })
+        # Perform error level analysis by finding the difference
+        ela_image = ImageChops.difference(original_image, compressed_image)
 
+        # Enhance the differences (make them more visible)
+        extrema = ela_image.getextrema()
+        max_diff = max([max(channel_extrema) for channel_extrema in extrema])
+        scale = 255.0 / max_diff if max_diff != 0 else 1.0
+        ela_image = ImageEnhance.Brightness(ela_image).enhance(scale)
+
+        # Convert the ELA image to numpy array for processing
+        ela_array = np.array(ela_image)
+
+        # Convert the ELA image to grayscale to analyze pixel intensities
+        ela_gray = np.mean(ela_array, axis=2).astype(np.uint8)  # Shape: (H, W)
+
+        # Clean up the temporary compressed image
+        os.remove(temp_image_path)
+
+        return ela_gray
     except Exception as e:
-        # Log the error (you might want to use a proper logging system in production)
-        print(f"Error processing image: {str(e)}")
-        return jsonify({'error': 'An error occurred while processing the image'}), 500
+        print(f"Error in perform_ela: {e}")
+        return None
 
-# Run the Flask app
+def perform_inference(ela_gray):
+    """
+    Performs inference on the ELA-processed grayscale image.
+
+    Args:
+        ela_gray (np.ndarray): Grayscale ELA image.
+
+    Returns:
+        float: Confidence score from the model prediction.
+    """
+    try:
+        # Resize to 256x256 as per the model's requirement
+        resized = cv2.resize(ela_gray, (256, 256))
+
+        # Stack to make 3 channels if model expects RGB
+        resized = np.stack([resized]*3, axis=-1)  # Shape: (256, 256, 3)
+
+        # Normalize the image
+        resized = resized.astype(np.float32) / 255.0
+
+        # Expand dimensions to match model input (1, 256, 256, 3)
+        input_data = np.expand_dims(resized, axis=0)
+
+        # Predict
+        yhat = model.predict(input_data)
+        confidence_score = float(yhat[0][0])
+
+        return confidence_score
+    except Exception as e:
+        print(f"Error in perform_inference: {e}")
+        return None
+
+@app.route('/process', methods=['POST'])
+def process_image():
+    """
+    Endpoint to process an uploaded image, perform ELA, run inference, and return the result.
+
+    Returns:
+        JSON: {
+            'forgery_detected': True or False,
+            'confidence': float
+        }
+    """
+    if model is None:
+        return jsonify({'error': 'Model not loaded.'}), 500
+
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image part in the request.'}), 400
+
+    file = request.files['image']
+
+    if file.filename == '':
+        return jsonify({'error': 'No selected file.'}), 400
+
+    if file:
+        try:
+            # Save the uploaded image to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_file:
+                file_path = temp_file.name
+                file.save(file_path)
+
+            # Perform ELA
+            ela_gray = perform_ela(file_path)
+            if ela_gray is None:
+                os.remove(file_path)
+                return jsonify({'error': 'ELA processing failed.'}), 500
+
+            # Perform inference
+            confidence_score = perform_inference(ela_gray)
+            if confidence_score is None:
+                os.remove(file_path)
+                return jsonify({'error': 'Inference failed.'}), 500
+
+            # Determine if forgery is detected based on confidence score
+            if confidence_score < 0.5:
+                response = {
+                    'forgery_detected': True,
+                    'confidence': round(1 - confidence_score, 4)
+                }
+            else:
+                response = {
+                    'forgery_detected': False,
+                    'confidence': round(confidence_score, 4)
+                }
+
+            # Clean up the uploaded file
+            os.remove(file_path)
+
+            return jsonify(response), 200
+
+        except Exception as e:
+            print(f"Error processing image: {e}")
+            return jsonify({'error': 'Internal server error.'}), 500
+
+    return jsonify({'error': 'Invalid request.'}), 400
+
+@app.route('/')
+def index():
+    return """
+    <h1>Image Forgery Detection API</h1>
+    <p>Use the <code>/process</code> endpoint to upload an image and get predictions.</p>
+    <p>Example using <code>curl</code>:</p>
+    <pre>
+    curl -X POST -F "image=@path_to_image.jpg" http://localhost:5000/process
+    </pre>
+    """
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Run the Flask app
+    app.run(host='0.0.0.0', port=5000, debug=True)
