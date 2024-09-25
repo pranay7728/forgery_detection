@@ -1,11 +1,11 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS  # Import CORS
+from flask_cors import CORS
 import tensorflow as tf
 import numpy as np
 import cv2
 import os
 from werkzeug.utils import secure_filename
-from PIL import Image, ImageChops, ImageEnhance  # Imports for ELA
+from PIL import Image, ImageChops, ImageEnhance
 import io
 
 # Initialize Flask app
@@ -24,7 +24,7 @@ if not os.path.exists(UPLOAD_DIRECTORY):
 # Load the trained model
 model = tf.keras.models.load_model('forgeryvTestRand.keras')
 
-# Function to perform ELA on an image
+# Updated ELA function to match the first implementation
 def perform_ela(image_path, quality=90):
     # Open the original image
     original_image = Image.open(image_path)
@@ -36,21 +36,45 @@ def perform_ela(image_path, quality=90):
     # Open the compressed image
     compressed_image = Image.open(temp_image_path)
 
+    # Resize and mode conversion checks
+    if original_image.size != compressed_image.size:
+        compressed_image = compressed_image.resize(original_image.size)
+    if original_image.mode != compressed_image.mode:
+        compressed_image = compressed_image.convert(original_image.mode)
+
     # Perform error level analysis by finding the difference
     ela_image = ImageChops.difference(original_image, compressed_image)
 
+    # Convert to RGB if the image is grayscale (single-channel)
+    if ela_image.mode != 'RGB':
+        ela_image = ela_image.convert('RGB')
+
     # Enhance the differences (make them more visible)
     extrema = ela_image.getextrema()
-    max_diff = max([extreme[1] for extreme in extrema])
+
+    # Extract extrema from each channel if necessary
+    if isinstance(extrema[0], tuple):
+        max_diff = max([max(channel_extrema) for channel_extrema in extrema])
+    else:
+        max_diff = max(extrema)
 
     # Prevent division by zero if max_diff is 0
     scale = 255.0 / max_diff if max_diff != 0 else 1.0
     ela_image = ImageEnhance.Brightness(ela_image).enhance(scale)
 
-    # Convert the ELA image to RGB for model input (if necessary)
-    ela_image = ela_image.convert('RGB')
+    # Convert the ELA image to numpy array for processing
+    ela_array = np.array(ela_image)
 
-    return ela_image
+    # Convert the ELA image to grayscale to analyze pixel intensities
+    ela_gray = np.mean(ela_array, axis=2)  # Average the RGB channels to get grayscale intensity
+
+    # Convert back to PIL Image
+    ela_gray_image = Image.fromarray(ela_gray.astype(np.uint8))
+
+    # Clean up temporary file
+    os.remove(temp_image_path)
+
+    return ela_gray_image
 
 # Function to preprocess the image (apply ELA, resize, normalize)
 def preprocess_image(image_path):
@@ -66,8 +90,8 @@ def preprocess_image(image_path):
     # Normalize pixel values (0-1)
     ela_resized = ela_resized / 255.0
 
-    # Add batch dimension
-    ela_resized = np.expand_dims(ela_resized, axis=0)
+    # Add batch dimension and channel dimension (for grayscale)
+    ela_resized = np.expand_dims(ela_resized, axis=(0, -1))
 
     return ela_resized
 
