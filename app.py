@@ -195,6 +195,7 @@ def process_image():
             # Clean up temporary files
             os.remove(file_path)
             os.remove(saved_ela_image_path)
+            print("")
 
             return jsonify(response), 200
 
