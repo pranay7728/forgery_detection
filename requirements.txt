@@ -1,0 +1,9 @@
+Flask
+numpy
+tensorflow
+opencv-python-headless
+Werkzeug==2.3.7
+gunicorn
+flask-cors
+Pillow
+ultralytics
